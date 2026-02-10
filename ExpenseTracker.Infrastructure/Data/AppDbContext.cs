@@ -24,113 +24,32 @@ public class AppDbContext : DbContext
     {
         base.OnModelCreating(modelBuilder);
 
-        // Tenant configuration
-        modelBuilder.Entity<Tenant>(entity =>
-        {
-            entity.ToTable("tenants");
+        // Indexes
+        modelBuilder.Entity<Tenant>()
+            .HasIndex(t => t.Subdomain)
+            .IsUnique();
 
-            entity.HasKey(e => e.Id);
-            entity.Property(e => e.Id).HasColumnName("id");
-            entity.Property(e => e.Name).HasColumnName("name").IsRequired().HasMaxLength(200);
-            entity.Property(e => e.Subdomain).HasColumnName("subdomain").IsRequired().HasMaxLength(100);
-            entity.Property(e => e.ContactEmail).HasColumnName("contact_email").IsRequired().HasMaxLength(256);
-            entity.Property(e => e.CreatedAt).HasColumnName("created_at");
-            entity.Property(e => e.IsActive).HasColumnName("is_active");
-            entity.Property(e => e.Plan).HasColumnName("plan");
-            entity.Property(e => e.SubscriptionExpiresAt).HasColumnName("subscription_expires_at");
-            entity.Property(e => e.MaxUsers).HasColumnName("max_users");
+        modelBuilder.Entity<User>()
+            .HasIndex(u => new { u.TenantId, u.Email })
+            .IsUnique();
 
-            entity.HasIndex(e => e.Subdomain).IsUnique();
-        });
+        modelBuilder.Entity<Category>()
+            .HasIndex(c => new { c.TenantId, c.Name })
+            .IsUnique();
 
-        // User configuration
-        modelBuilder.Entity<User>(entity =>
-        {
-            entity.ToTable("users");
+        modelBuilder.Entity<Expense>()
+            .HasIndex(e => e.TenantId);
 
-            entity.HasKey(e => e.Id);
-            entity.Property(e => e.Id).HasColumnName("id");
-            entity.Property(e => e.TenantId).HasColumnName("tenant_id");
-            entity.Property(e => e.Email).HasColumnName("email").IsRequired().HasMaxLength(256);
-            entity.Property(e => e.PasswordHash).HasColumnName("password_hash").IsRequired();
-            entity.Property(e => e.FirstName).HasColumnName("first_name").IsRequired().HasMaxLength(100);
-            entity.Property(e => e.LastName).HasColumnName("last_name").IsRequired().HasMaxLength(100);
-            entity.Property(e => e.Role).HasColumnName("role");
-            entity.Property(e => e.IsActive).HasColumnName("is_active");
-            entity.Property(e => e.CreatedAt).HasColumnName("created_at");
-            entity.Property(e => e.LastLoginAt).HasColumnName("last_login_at");
+        modelBuilder.Entity<Expense>()
+            .HasIndex(e => e.UserId);
 
-            entity.HasIndex(e => new { e.TenantId, e.Email }).IsUnique();
+        modelBuilder.Entity<Expense>()
+            .HasIndex(e => e.ExpenseDate);
 
-            entity.HasOne(e => e.Tenant)
-                .WithMany(t => t.Users)
-                .HasForeignKey(e => e.TenantId)
-                .OnDelete(DeleteBehavior.Cascade);
-        });
+        modelBuilder.Entity<Expense>()
+            .HasIndex(e => e.Status);
 
-        // Expense configuration
-        modelBuilder.Entity<Expense>(entity =>
-        {
-            entity.ToTable("expenses");
-
-            entity.HasKey(e => e.Id);
-            entity.Property(e => e.Id).HasColumnName("id");
-            entity.Property(e => e.TenantId).HasColumnName("tenant_id");
-            entity.Property(e => e.UserId).HasColumnName("user_id");
-            entity.Property(e => e.Title).HasColumnName("title").IsRequired().HasMaxLength(200);
-            entity.Property(e => e.Description).HasColumnName("description").HasMaxLength(1000);
-            entity.Property(e => e.Amount).HasColumnName("amount").HasPrecision(18, 2);
-            entity.Property(e => e.Currency).HasColumnName("currency").HasMaxLength(3);
-            entity.Property(e => e.CategoryId).HasColumnName("category_id");
-            entity.Property(e => e.ExpenseDate).HasColumnName("expense_date");
-            entity.Property(e => e.Status).HasColumnName("status");
-            entity.Property(e => e.ReceiptUrl).HasColumnName("receipt_url");
-            entity.Property(e => e.CreatedAt).HasColumnName("created_at");
-            entity.Property(e => e.UpdatedAt).HasColumnName("updated_at");
-
-            entity.HasIndex(e => e.TenantId);
-            entity.HasIndex(e => e.UserId);
-            entity.HasIndex(e => e.ExpenseDate);
-            entity.HasIndex(e => e.Status);
-
-            entity.HasOne(e => e.Tenant)
-                .WithMany(t => t.Expenses)
-                .HasForeignKey(e => e.TenantId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            entity.HasOne(e => e.User)
-                .WithMany(u => u.Expenses)
-                .HasForeignKey(e => e.UserId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            entity.HasOne(e => e.Category)
-                .WithMany(c => c.Expenses)
-                .HasForeignKey(e => e.CategoryId)
-                .OnDelete(DeleteBehavior.Restrict);
-        });
-
-        // Category configuration
-        modelBuilder.Entity<Category>(entity =>
-        {
-            entity.ToTable("categories");
-
-            entity.HasKey(e => e.Id);
-            entity.Property(e => e.Id).HasColumnName("id");
-            entity.Property(e => e.TenantId).HasColumnName("tenant_id");
-            entity.Property(e => e.Name).HasColumnName("name").IsRequired().HasMaxLength(100);
-            entity.Property(e => e.Description).HasColumnName("description").HasMaxLength(500);
-            entity.Property(e => e.ColorCode).HasColumnName("color_code");
-            entity.Property(e => e.IsActive).HasColumnName("is_active");
-
-            entity.HasIndex(e => new { e.TenantId, e.Name }).IsUnique();
-
-            entity.HasOne(e => e.Tenant)
-                .WithMany()
-                .HasForeignKey(e => e.TenantId)
-                .OnDelete(DeleteBehavior.Cascade);
-        });
-
-        // Global query filters (Multi-tenancy)
+        // Global query filters
         modelBuilder.Entity<User>().HasQueryFilter(u =>
             u.TenantId == _tenantService.GetCurrentTenantId());
 
@@ -149,24 +68,24 @@ public class AppDbContext : DbContext
         {
             if (entry.State == EntityState.Added)
             {
-                var tenantIdProperty = entry.Property("TenantId");
-                if (tenantIdProperty != null && currentTenantId.HasValue)
+                var tenantIdProp = entry.Metadata.FindProperty("TenantId");
+                if (tenantIdProp != null && currentTenantId.HasValue)
                 {
-                    tenantIdProperty.CurrentValue = currentTenantId.Value;
+                    entry.Property("TenantId").CurrentValue = currentTenantId.Value;
                 }
 
-                var createdAtProperty = entry.Property("CreatedAt");
-                if (createdAtProperty != null)
+                var createdAtProp = entry.Metadata.FindProperty("CreatedAt");
+                if (createdAtProp != null)
                 {
-                    createdAtProperty.CurrentValue = DateTime.UtcNow;
+                    entry.Property("CreatedAt").CurrentValue = DateTime.UtcNow;
                 }
             }
             else if (entry.State == EntityState.Modified)
             {
-                var updatedAtProperty = entry.Property("UpdatedAt");
-                if (updatedAtProperty != null)
+                var updatedAtProp = entry.Metadata.FindProperty("UpdatedAt");
+                if (updatedAtProp != null)
                 {
-                    updatedAtProperty.CurrentValue = DateTime.UtcNow;
+                    entry.Property("UpdatedAt").CurrentValue = DateTime.UtcNow;
                 }
             }
         }
